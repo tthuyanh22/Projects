@@ -1,0 +1,327 @@
+---
+title: "Outlier Detection using hat matrix"
+author: Thuy Anh Tran , Elaheh Kordbacheh, Parviz Izadi, Evren Tavacioglu, Zulaikhoi Saidzoda, Sergei Dolia
+date: '2024-06-03'
+output:
+  html_document:
+    toc: yes
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{css, echo = FALSE}
+d-article p {
+  text-align: justify;
+}
+```
+
+# Introduction
+
+In the following analysis report, the data set introduced in the article "**The Hat Matrix in Regression and ANOVA**" by David C. Hoaglin and Roy E. Welsch (1978) has been examined. This report presents the findings of our analysis, providing insights into the relationship between the predictor variables (the constant, specific gravity, and moisture content), and the response (strength) and demonstrates the utility of the hat matrix in enhancing the robustness and accuracy of regression models. 
+
+
+The primary focus is to explore the significance of the hat matrix in regression analysis and ANOVA, highlighting its role in identifying leverage points and assessing the influence of individual observations on the regression model. Utilizing the statistical software R, we have performed a detailed regression analysis to model the strength of wood beams as a function of specific gravity and moisture content. Through this analysis, we aim to illustrate the practical applications of the hat matrix, interpret the coefficients of the regression model, and identify any influential data points that significantly affect the model's predictions.
+Upcoming part contains data preprocessing and fitting the linear regression model. In part 3, outlier detection is executed by analysing the Hat matrix, part 4 represents model refitting and outliers’ Influence evaluation. In the closing part, key findings and conclusions are highlighted.
+
+# 1. Data Preparation
+
+First we load the required libraries.
+
+- `rstudioapi` for environment manipulation
+- `ggplot2` for plotting
+- `dplyr` for data manipulation
+
+```{r echo=TRUE,  warning=FALSE, error=FALSE, message=FALSE}
+library(rstudioapi)
+library(ggplot2)
+library(dplyr)
+```
+
+Here is our dataset:
+```{r echo=FALSE}
+data <- read.csv("data_on_wood_beams.csv")
+head(data,10)
+```
+
+In our data we have 10 observations and following variables:
+
+- Predictor variables are "specific gravity" and "moisture content"
+- Response variable is "strength" 
+
+Here are the summary statistics:
+
+```{r echo=FALSE}
+summary(data[,-1])
+```
+
+As we see a quick overview of the main summary statistics including numerical data such as "Minimum and Maximum", "Quantiles", "Mean" and "Median" that helps us in understanding the distribution, central tendency, and variability of the data is shown. 
+
+# 2. Benchmark linear model
+
+We implemented the following R code to fit a linear regression model to our dataset.
+
+```{r}
+lm_fit_1<-lm(`strength`~`moisture.content`+`specific.gravity`,data=data)
+summary(lm_fit_1)
+```
+
+The linear regression analysis indicates that the model, which predicts the strength based on moisture content and specific gravity, is statistically significant (F(2,7) = 31.5, p < 0.001). R-square values at 90%, Adjusted R-squared values at 87.1%, which indicates that the dependent variable can be highly explained by the carriers. Specifically, specific gravity has a significantly positive effect on strength at 5% significant level, with the coefficient being 8.495. Meanwhile, moisture content shows a insignificantly negative effect at 5% significant level, with the coefficient being  -0.266. The residuals are relatively small, with a standard error of 0.275, indicating a good fit of the model to the data.
+
+# 3. Outlier detection 
+## 3.1. Detection from hat matrix and Studentized residuals
+### Hat Matrix Analysis
+Given $\hat{y} = Hy$, it can be interpreted that $\hat{y}$ is a function $y$ and the elements $h_{ij}$ of the projection matrix H act as the amount of leverage  or influence exerted on $\hat{y_{i}}$ by $y_{i}$, regardless of the actual value of $y_{i}$ since $H$ depends on $X$ only. Thus, the hat matrix can reveal sensitive points in the sample, or in other words, points at which the the value of $y$ has large impact on the fit $\hat{y}$. Diagnosis of sensitive parts in hat matrix helps analysts consider to omit outliers if the corresponding $y$ values seem discrepant, avoiding disproportionately influence the regression results.
+
+From the equation $H = X (X^T X)^{-1} X^T$ hat matrix for the examined data on wood beam is calculated as follows:
+
+```{r}
+X <- cbind(1, data$specific.gravity, data$moisture.content)
+colnames(X) <- c("Intercept", "SpecificGravity", "MoistureContent")
+```
+
+```{r}
+# Calculate the Hat Matrix H
+XtX_inv <- solve(t(X) %*% X)
+H <- X %*% XtX_inv %*% t(X)
+H_rounded <- round(H, 3) # Round to 3 decimal places
+H_upper <- H_rounded 
+H_upper[lower.tri(H_upper)] <- NA  # The lower part is removed by symmetry
+```
+
+Here is the resulting matrix:
+```{r echo=FALSE}
+print(H_upper)
+```
+
+The hat matrix is a 10x10, symmetric and idempotent matrix ($H^{2} = H$). Diagonal elements shows the influence each observation has on its own fitted value, meanwhile off-diagonal elements show cross-influence within rows and columns. We will pay more attention on the diagonal of the hat matrix not only due to its straightforward interpretation but also because it will be less complicated to compute and examine when the number of parameters increases. The high value of a diagonal element suggests that such observation has a significant impact on its own prediction.   
+As a hat matrix,
+$$\sum_{i=1}^{n} h_{i} = p$$, 
+thus $\sum_{i=1}^{n} h_{i}/n = p/n$ in which $p$ is the number of parameters and $n$ is the number of observations. Hence $p/n$ is the average size of a diagonal element of the hat matrix. A reasonable rule for large $h_{i}$ is $h_{i} > 2p/n$ (Hoaglin & Welsch, 1978). 
+
+```{r}
+# Define the threshold for high leverage point
+n <- nrow(data)  # Number of observations
+p <- ncol(X)  # Number of parameters (including the intercept)
+threshold <- 2 * p / n
+```
+```{r echo=FALSE}
+cat('Threshold value ', threshold)
+```
+
+With the threshold of 0.6, the high leverage point we found is point 4 (row 4, column 4).
+```{r}
+# Identify elements greater than the threshold
+high_leverage_points <- H > threshold
+```
+```{r echo=FALSE}
+# Print elements of the hat matrix greater than the threshold
+cat("Elements of the hat matrix greater than", threshold, ":\n")
+print(H[high_leverage_points])
+```
+
+```{r echo=TRUE}
+# Display the upper triangular Hat Matrix with highlights
+H_upper_highlighted <- H_upper
+H_upper_highlighted[!high_leverage_points & upper.tri(H_upper, diag = TRUE)] <- NA
+```
+```{r echo=FALSE}
+print(H_upper_highlighted)
+```
+Having identified the high leverage point in the hat matrix, we shall examine the effect of its position whether it is adverse on the fit. The more extreme design points provide  a great source of information and exclusion of such observations might substantially reduce the precision of our coefficients.  
+
+### Residuals analysis
+Investigation of the effect is executed by examining the residuals, specifically Studentized residuals (Hoaglin & Welsch, 1978):
+$$r_i^* = \frac{r_i}{(s_{(i)} (1 - h_i))^{1/2}}$$
+in which $r_{i}= y_{i}-\hat{y_{i}}$ is the residual, being standardized by removing the leverage effect (divided by $s_{(i)} (1 - h_i))^{1/2}$). The size of residuals corresponding to $y_{i}$ when data point $i$ is omitted from the fit is examined by using $s_{(i)}$, which we obtain from:
+$$(n - p - 1)s_{(i)}^2 = (n - p)s^2 - \frac{r_i^2}{1 - h_i}$$
+Our approach is to assessing both the leverage value $h_{i}$ and $r_{i}^*$ to see the abnormally high or low studentized residuals. Since $r_{i}^i$ has a t distribution on $n-p-1$ degrees of freedom (in our case $df=6$), we would examine those values that exceed or nearly exceed $[-2.447,2.447]$ at significant level of 5%. Among the $r_{i}^*$, **beam 1** ($r_{i}^* = -3.253$) and **beam 6** $r_{i}^* = -2.205$ deserve attention. Additionally, as mentioned above, **beam 4** has high leverage value and continue to be further investigated.
+
+```{r}
+residuals <- lm_fit_1$residuals
+ri <- round(residuals,3)
+```
+
+```{r}
+# Calculate studentized residuals
+hi <- round(diag(H),3)  # Leverage values (diagonal elements of H)
+```
+```{r echo=FALSE}
+t(data.frame(leverage=hi))
+```
+
+```{r}
+s <- sqrt(sum(residuals^2) / (n - p))  # Residual standard error
+sqrt.leverage <- round(sqrt(1-hi),3)
+```
+```{r echo=FALSE}
+cat('Residual standard error: ', s, end='\n')
+```
+
+```{r}
+si <- sqrt(((n - p) * s^2 - residuals^2 / (1 - hi)) / (n - p - 1)) #5.4
+si <- round(si,3)
+studentized_residuals <- residuals/(si * round(sqrt(1 - hi),3)) #5.3
+studentized_residuals <- round(studentized_residuals,3) 
+results <- data.frame(ri = ri, hi = hi,sqrt.leverage = sqrt.leverage,
+                      si = si,studentized_residuals = studentized_residuals)
+```
+```{r echo=FALSE}
+print(results)
+```
+
+## 3.2. Diagnotis of regression plots
+We further emphasize our detection of outliers by plotting strength vs specific gravity and strength vs moisture content. In *Figure A. Strength vs. Specific Gravity*, observations seem to be relatively linear and well-behaved, except for point 1. 
+```{r echo=FALSE}
+plot(data$specific.gravity, data$strength,
+     xlab = "Specific Gravity",
+     ylab = "Strength",
+     main = "Figure A. Strength vs. Specific Gravity",
+     pch = 19, col = "blue", 
+     xlim = c(0.4, 0.6), ylim = c(10.5, 13.5))
+# Adding labels to each point
+text(data$specific.gravity, data$strength, labels = 1:nrow(data), pos = 3)
+```
+
+In *Figure B. Strength vs. Moisture Content*, point 4 can be seen to be lying apart from the rest of other observations. 
+```{r echo=FALSE}
+plot(data$moisture.content, data$strength,
+     xlab = "moisture content",
+     ylab = "Strength",
+     main = "Figure B. Strength vs. moisture content",
+     pch = 19, col = "blue", 
+     xlim = c(8.5, 11.5), ylim = c(10.5, 13.5))
+# Adding labels to each point
+text(data$moisture.content, data$strength, labels = 1:nrow(data), pos = 3)
+```
+
+In conclusion, through investigating the hat matrix and studentized residuals, plus with plots of dependent variable vs each carrier, exceptional points are beam 1, beam 4 and beam 6. We will assess the damaging level of these points in the last part. 
+
+# 4. Impact analysis
+
+## 4.1 Refitting the model
+
+To assess this damage level we reassess our baseline OLS model, omitting the problem beams. First we refit the model omitting beam 1
+
+```{r}
+data_o1 <- data[-1, ]
+lm_fit_o1 <- lm(strength ~ moisture.content + specific.gravity, data = data_o1)
+summary(lm_fit_o1)
+```
+
+As can be seen, the model explains higher percentage of variance in dependent variable ($R^2_{m_{(1)}}>R^2_{m_{baseline}}$) but contrary to baseline model, the variable `moisture.content` is not statistically significant at any plausible cutoff significance level (p-value = 0.49). So we can conclude that beam 1 has a moisture content significantly different from other observation, so the difference in moisture content in this observation significantly explain its difference in `strength`, as without it this variable becomes absolutely insignificant.
+
+Then we refit the model omitting beam 4.
+
+```{r}
+data_o4 <- data[-4, ]
+lm_fit_o4 <- lm(strength ~ moisture.content + specific.gravity, data = data_o4)
+summary(lm_fit_o4)
+```
+
+As we see here the model explains less variance of `strength` that the model omitting first beam, but more than the baseline ($R^2_{m_{(1)}}>R^2_{m_{(4)}}>R^2_{m_{baseline}}$). 
+
+Lastly, we refit the model omitting beam 6.
+
+```{r}
+#Refitting model omitting beam 6
+data_o6 <- data[-6, ]
+lm_fit_o6 <- lm(strength ~ moisture.content + specific.gravity, data = data_o6)
+summary(lm_fit_o6)
+```
+
+This model is similar to model $m_{(4)}$ in sense of predictive power and significance.
+
+
+## 4.1 Measuring change in coefficients 
+
+We then conduct the analysis of coefficient change to assess the impact of exceptional points on model fit. As a first step, we extract the coefficients for intercept, `moisture.content` and `specific.gravity` respectively from baseline model and models omitting exceptional points in order to compare them.
+
+```{r}
+coef_original <- coef(lm_fit_1)
+coef_o1 <- coef(lm_fit_o1)
+coef_o4 <- coef(lm_fit_o4)
+coef_o6 <- coef(lm_fit_o6)
+```
+```{r echo=FALSE}
+data.frame('baseline'=coef_original, 
+           'omitting_1'=coef_o1,
+           'omitting_4'=coef_o4,
+           'omitting_6'=coef_o6)
+```
+
+After that we calculate the difference between baseline model's coefficients and those from each adjusted model.
+
+```{r}
+# Calculate the difference between the coefficients
+coefs_diff1 <- round((coef_original - coef_o1),3)
+coefs_diff4 <- round((coef_original - coef_o4),3)
+coefs_diff6 <- round((coef_original - coef_o6),3)
+```
+```{r echo=FALSE}
+data.frame('omitting_1'=coefs_diff1,
+           'omitting_4'=coefs_diff4,
+           'omitting_6'=coefs_diff6)
+```
+
+These are absolute differences, but in order to understand the impact of exceptional points we need to compare the changes in coefficients relative to their variance, so to measure it in standard error units. To do that, the following formula is used:
+
+$$I_{(i)}=\frac{|\beta-\beta_{(i)}|}{s.e.}$$
+
+where $\beta$ is the coefficient in original regression, $\beta_{(i)}$ is the coefficient in model, omitting observation $i$, and $s.e.$ is standard error of coefficient in original regression. To remeasure impacts we first extract standard errors:
+
+```{r}
+summary_original <- summary(lm_fit_1)
+std_errors_original <- summary_original$coefficients[, "Std. Error"]
+print(std_errors_original)
+```
+
+We then use these standard errors to apply the formula and calculate how much the coefficients change in standard error units when we refit the model omitting some observation.
+
+```{r}
+std_coefs_diff1 <- abs(coefs_diff1)/std_errors_original
+std_coefs_diff4 <- abs(coefs_diff4)/std_errors_original
+std_coefs_diff6 <- abs(coefs_diff6)/std_errors_original
+```
+```{r echo=FALSE}
+data.frame('omitting_1'=std_coefs_diff1,
+           'omitting_4'=std_coefs_diff4,
+           'omitting_6'=std_coefs_diff6)
+```
+
+As we see in these results, omitting beam 1 and beam 4 has large effect on the regression, especially on estimate of variance in moisture content (we have noted the potential strong influence of omitting beam 1 also when looking at p-values in our regression analysis). On the other hand, the omitting of beam 6 does not influence model as significantly.
+
+## 4.3 Adjusted models
+
+This allows us to conclude, that in order to build a better model to understand the effect of moisture content and specific gravity on beam strength we should сonsider not including in our analysis beams 1 and 4. To conclude, we have built the model using 8 observations, omitting these two beams:
+
+```{r}
+data_o14 <- data[-c(1,4),]
+lm_fit_o14 <- lm(strength ~ moisture.content + specific.gravity, data = data_o14)
+summary(lm_fit_o14)
+```
+
+As we see in this model, the predictive power of model has risen and it now explain almost 96% of variance. ANOVA test also shows us that the regression explain the variance of dependent variable in a significant way. However, we can note that after omitting beam 1 and 4, inclusion of `moisture.contect` in the analysis became insignificant. So finally we reevaluate our model, omitting beams 1 and 4 and using only `specific.gravity` as an exogenous variable
+
+```{r}
+lm_fit_final <- lm(strength ~ specific.gravity, data = data[-c(1,4),])
+summary(lm_fit_final)
+```
+
+This final model is significant using the ANOVA test and explain almost 95% of variance in beam strength. Alternatively, as mentioned by Hoaglin and Welsch (1978), dummy variables can be used to include omitted variables into the analysis. We refit the model including beams 1 and 4 as dummy variables, introducing them as outliers into the analysis.
+
+```{r}
+data$outlier1 = c(1,0,0,0,0,0,0,0,0,0)
+data$outlier4 = c(0,0,0,1,0,0,0,0,0,0)
+head(data, n=4)
+lm_fit_dummys <- lm(strength ~ specific.gravity + outlier1 + outlier4, data = data)
+summary(lm_fit_dummys)
+```
+
+In this alternative model we see that models stays significant and explain even larger portion of variance.
+
+# Conclusion
+
+We have looked and the data set, introduced by Hoaglin and Welsch (1978) and have used a hat matrix and studentized residuals to detect potential high leverage points. After detecting potential impact points (beams 1,4,6) we have asses their impact by refitting the model and found that observations 1 and 4 carry a significant leverage, especially on the relationship between variables `moisture.content` and `strength`, which becomes statistically insignificant, when omitting these two variables. Finally, we have built two models, omitting those potential outliers and including them as dummy variables, to see that in general increase of 1 unit of specific gravity results in increase of beam strenght of around 11 units.
+
