@@ -1,5 +1,5 @@
 - 👋 Hi, I’m @tthuyanh22
-- 👀 I’m interested in finance, financial modeling, banking, money markets, etc.
+- 👀 I’m interested in finance, financial modeling, banking, money markets, risk management, macroeconomics etc.
 - 🌱 I’m currently learning Quantitative Finance at University of Milan
 
 
